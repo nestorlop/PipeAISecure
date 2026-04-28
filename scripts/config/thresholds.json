@@ -1,0 +1,55 @@
+{
+  "model": "codellama:7b",
+  "ollama_url": "http://localhost:11434",
+  "timeout_seconds": 120,
+  "max_tokens": 2048,
+  "severity_thresholds": {
+    "CRITICAL": {
+      "block_push": true,
+      "exit_code": 1,
+      "action": "fail",
+      "description": "Critical vulnerabilities must be fixed before push"
+    },
+    "HIGH": {
+      "block_push": true,
+      "exit_code": 1,
+      "action": "fail",
+      "description": "High vulnerabilities should be addressed"
+    },
+    "MEDIUM": {
+      "block_push": false,
+      "exit_code": 0,
+      "action": "warn",
+      "description": "Medium vulnerabilities are logged but don't block"
+    },
+    "LOW": {
+      "block_push": false,
+      "exit_code": 0,
+      "action": "info",
+      "description": "Low issues are informational only"
+    }
+  },
+  "file_extensions": [".java"],
+  "exclude_paths": [
+    "target/",
+    "test/",
+    "*/test/",
+    "*/tests/",
+    ".git/",
+    "docs/",
+    "*.class",
+    "*.jar"
+  ],
+  "max_file_size_kb": 500,
+  "analysis_options": {
+    "batch_size": 5,
+    "parallel_requests": 2,
+    "cache_results": true
+  },
+  "report_options": {
+    "format": "html",
+    "output_path": "scripts/reports",
+    "include_code_snippets": true,
+    "max_snippet_lines": 10
+  }
+}

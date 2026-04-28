@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Security Analysis Report - TheBoys-Backend</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { color: #333; border-bottom: 3px solid #0099ff; padding-bottom: 10px; }
+        .summary { display: flex; gap: 20px; margin: 20px 0; }
+        .summary-card { flex: 1; padding: 20px; border-radius: 10px; text-align: center; color: white; }
+        .critical { background: #ff0000; }
+        .high { background: #ff6600; }
+        .medium { background: #ffcc00; color: #333; }
+        .low { background: #0099ff; }
+        .vulnerability { background: white; margin: 10px 0; padding: 15px; border-radius: 8px; border-left: 5px solid; }
+        .code { background: #f0f0f0; padding: 10px; border-radius: 5px; font-family: monospace; overflow-x: auto; }
+        .badge { padding: 5px 10px; border-radius: 3px; color: white; font-weight: bold; }
+        .blocked { background: #ff0000; color: white; padding: 20px; border-radius: 10px; text-align: center; font-size: 24px; margin: 20px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔒 AI Security Analysis Report</h1>
+        <p><strong>Project:</strong> TheBoys-Backend</p>
+        <p><strong>Date:</strong> 2026-04-16T19:00:29.794332</p>
+        <p><strong>Files Analyzed:</strong> 88</p>
+        
+        <div class="summary">
+            <div class="summary-card critical">
+                <h2>1</h2>
+                <p>CRITICAL</p>
+            </div>
+            <div class="summary-card high">
+                <h2>0</h2>
+                <p>HIGH</p>
+            </div>
+            <div class="summary-card medium">
+                <h2>0</h2>
+                <p>MEDIUM</p>
+            </div>
+            <div class="summary-card low">
+                <h2>0</h2>
+                <p>LOW</p>
+            </div>
+        </div>
+<div class="blocked">⛔ PUSH BLOQUEADO - Vulnerabilidades críticas detectadas</div><h2>Vulnerabilidades Detectadas</h2>
+        <div class="vulnerability" style="border-left-color: #ff0000;">
+            <span class="badge" style="background: #ff0000;">CRITICAL</span>
+            <h3>Hardcoded secrets/credentials</h3>
+            <p><strong>Archivo:</strong> src\main\java\edu\dosw\sirha\exception\RoleException.java</p>
+            <p><strong>Línea:</strong> 4</p>
+            <p><strong>Descripción:</strong> The student ID is hardcoded in the exception message.</p>
+<div class="code"><pre>String.format("User with ID '%s', has insufficient permissions", studentId);</pre></div><p><strong>💡 Sugerencia:</strong> Use a secure mechanism to store and retrieve sensitive information, such as environment variables or configuration files.</p></div>
+    </div>
+</body>
+</html>

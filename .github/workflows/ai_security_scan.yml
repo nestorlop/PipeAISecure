@@ -1,0 +1,142 @@
+name: AI Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+jobs:
+  security-ai-scan:
+    name: AI Vulnerability Detection
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.ai/install.sh | sh
+
+      - name: Create directories
+        run: mkdir -p scripts/reports
+
+      - name: Download Analyzer Script
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: ai-analyzer-script
+          path: scripts/
+
+      - name: Run Security Analyzer
+        run: |
+          export OLLAMA_HOST=http://localhost:11434
+          ollama serve &
+          sleep 15
+          ollama pull codellama:7b
+          
+          if [ -f scripts/ai_security_analyzer.py ]; then
+            chmod +x scripts/ai_security_analyzer.py
+            python3 scripts/ai_security_analyzer.py
+          else
+            echo "Script not found, using inline version"
+            python3 << 'PYTHON_SCRIPT'
+            import os, sys, json, requests, re
+            from pathlib import Path
+            from datetime import datetime
+
+            ollama_url = "http://localhost:11434"
+            model = "codellama:7b"
+
+            results = {
+                "timestamp": datetime.now().isoformat(),
+                "files_analyzed": 0,
+                "vulnerabilities": [],
+                "summary": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+            }
+
+            def get_files(base_path):
+                files = []
+                exclude = ["target/", "test/", ".git/", "docs/"]
+                for root, dirs, filenames in os.walk(base_path):
+                    dirs[:] = [d for d in dirs if not any(e in d for e in exclude)]
+                    for f in filenames:
+                        if f.endswith(".java"):
+                            fp = Path(root) / f
+                            if os.path.getsize(fp) < 500 * 1024:
+                                files.append(fp)
+                return files
+
+            def analyze(filepath):
+                try:
+                    with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                        code = f.read()
+                    if not code.strip():
+                        return []
+                    
+                    prompt = f"Analyze this Java code for security vulnerabilities. Focus: SQL Injection, XSS, Hardcoded secrets. Return ONLY valid JSON with vulnerabilities array. If none, return empty array."
+                    payload = {"model": model, "prompt": f"{prompt}\n\nCODE:\n{code}", "stream": False, "options": {"num_predict": 2048}}
+                    resp = requests.post(f"{ollama_url}/api/generate", json=payload, timeout=120)
+                    if resp.status_code == 200:
+                        try:
+                            m = re.search(r'\[.*\]', resp.json().get("response", ""), re.DOTALL)
+                            if m:
+                                return json.loads(m.group())
+                        except:
+                            pass
+                except Exception as e:
+                    print(f"Error: {e}")
+                return []
+
+            print("Scanning...")
+            files = get_files(".")
+            print(f"Found {len(files)} files")
+
+            for i, fp in enumerate(files, 1):
+                print(f"  [{i}/{len(files)}] {fp.name}")
+                vulns = analyze(fp)
+                for v in vulns:
+                    v["file"] = str(fp)
+                    v["severity"] = v.get("severity", "LOW").upper()
+                    results["vulnerabilities"].append(v)
+                    sev = v.get("severity", "LOW")
+                    results["summary"][sev] = results["summary"].get(sev, 0) + 1
+                results["files_analyzed"] += 1
+
+            os.makedirs("scripts/reports", exist_ok=True)
+            with open("scripts/reports/report.json", "w") as f:
+                json.dump(results, f, indent=2)
+
+            blocked = any(v.get("severity") in ["CRITICAL", "HIGH"] for v in results["vulnerabilities"])
+            print(f"Summary: {results['summary']}")
+            sys.exit(1) if blocked else sys.exit(0)
+            PYTHON_SCRIPT
+          fi
+        timeout-minutes: 45
+
+      - name: Upload Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-report
+          path: scripts/reports/report.json
+          retention-days: 30
+
+      - name: Show Results
+        if: always()
+        run: |
+          if [ -f scripts/reports/report.json ]; then
+            cat scripts/reports/report.json
+          fi

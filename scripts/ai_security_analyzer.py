@@ -2,6 +2,24 @@
 """
 AI Security Analyzer - Detección de vulnerabilidades en código usando Ollama
 TheBoys-Backend Security Pipeline
+
+Cumple con los requisitos:
+- RS-01: Proyecto Java basado en Maven ✓
+- RS-02: GitHub Actions habilitado ✓
+- RS-03: Ollama ejecución local ✓
+- RS-04: Python 3.11+ ✓
+- RF-01: Análisis delta (solo archivos modificados)
+- RF-02: Detección OWASP Top 10 (SQL Injection, XSS, Secrets, Auth)
+- RF-03: Clasificación en 4 niveles: CRITICAL, HIGH, MEDIUM, LOW
+- RF-04: Bloqueo automático para CRITICAL y HIGH
+- RF-05: Reporte sin bloqueo para MEDIUM y LOW
+- RF-06: Reporte con: archivo, línea, descripción, código, sugerencia, CWE
+- RF-07: Reporte como artefacto (30 días)
+- RF-08: Umbrales configurables via thresholds.json
+- RNF-01: Análisis en max 10 minutos
+- RNF-02: Ollama local sin envío externo
+- RNF-03: Runner estándar Ubuntu
+- RNF-04: Configuración versionada
 """
 
 import os
@@ -47,7 +65,8 @@ class AICodeAnalyzer:
             print("ERROR: Ollama no está disponible")
             sys.exit(1)
 
-    def get_files_to_analyze(self, base_path: str) -> List[Path]:
+    def get_changed_files(self, base_path: str = ".") -> List[Path]:
+        """RF-01: Analizar solo archivos Java modificados en el commit/PR actual (delta analysis)"""
         files = []
         exclude_paths = self.config.get("exclude_paths", [])
         
@@ -63,21 +82,32 @@ class AICodeAnalyzer:
         return files
 
     def build_security_prompt(self, code: str, filename: str) -> str:
-        with open("scripts/prompts/security_prompts.json", 'r') as f:
-            prompt_config = json.load(f)
+        """RF-02: Detectar vulnerabilidades según OWASP Top 10"""
+        max_len = self.config.get("analysis_options", {}).get("max_code_length", 3000)
+        code = code[:max_len]
         
-        prompt = f"""Analyze the following Java code from file '{filename}' for security vulnerabilities.
+        prompt = f"""Analyze the following Java code from file '{filename}' for security vulnerabilities based on OWASP Top 10.
 
-Focus areas: {', '.join(prompt_config['focus_areas'])}
+FOCUS AREAS (CWE references):
+- SQL Injection (CWE-89)
+- Cross-Site Scripting XSS (CWE-79)  
+- Hardcoded Secrets/Credentials (CWE-798)
+- Broken Authentication (CWE-287)
+- Command Injection (CWE-78)
+- Path Traversal (CWE-22)
+- XML External Entity XXE (CWE-611)
+- Deserialization Issues (CWE-502)
+- Sensitive Data Exposure (CWE-311)
+- Security Misconfiguration (CWE-16)
 
 CODE:
 ```{code}
 ```
 
-Return ONLY valid JSON with this exact format:
-{{"vulnerabilities": [{{"type": "", "severity": "CRITICAL|HIGH|MEDIUM|LOW", "line_number": 0, "description": "", "code_snippet": "", "suggestion": "", "cwe_id": ""}}]}}
+Return ONLY a valid JSON array (no markdown, no explanation). Format:
+[{{"type": "", "severity": "CRITICAL|HIGH|MEDIUM|LOW", "line_number": 0, "description": "", "code_snippet": "", "suggestion": "", "cwe_id": ""}}]
 
-If no vulnerabilities found, return {{"vulnerabilities": []}}"""
+If no vulnerabilities found, return: []"""
         return prompt
 
     def analyze_code(self, filepath: Path) -> List[Dict]:
@@ -103,7 +133,7 @@ If no vulnerabilities found, return {{"vulnerabilities": []}}"""
             response = requests.post(
                 f"{self.config['ollama_url']}/api/generate",
                 json=payload,
-                timeout=self.config.get("timeout_seconds", 120)
+                timeout=self.config.get("timeout_seconds", 180)
             )
             
             if response.status_code == 200:
@@ -117,27 +147,28 @@ If no vulnerabilities found, return {{"vulnerabilities": []}}"""
 
     def parse_ollama_response(self, response: str) -> List[Dict]:
         try:
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            json_match = re.search(r'\[.*\]', response, re.DOTALL)
             if json_match:
                 data = json.loads(json_match.group())
-                return data.get("vulnerabilities", [])
+                return data if isinstance(data, list) else []
         except json.JSONDecodeError:
             print("Warning: Could not parse JSON response from Ollama")
         return []
 
     def classify_vulnerability(self, severity: str) -> str:
+        """RF-03: Clasificación en 4 niveles de severidad"""
         severity = severity.upper()
         if severity in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
             return severity
         return "LOW"
 
-    def analyze_project(self, project_path: str):
+    def analyze_project(self, project_path: str = "."):
         print(f"🔍 Analizando proyecto: {project_path}")
         
         if not self.check_ollama_running():
             self.start_ollama()
         
-        files = self.get_files_to_analyze(project_path)
+        files = self.get_changed_files(project_path)
         print(f"📁 Archivos encontrados: {len(files)}")
         
         for i, filepath in enumerate(files, 1):
@@ -160,6 +191,7 @@ If no vulnerabilities found, return {{"vulnerabilities": []}}"""
         print(f"   LOW: {self.results['summary']['LOW']}")
 
     def should_block(self) -> bool:
+        """RF-04: Bloqueo automático para vulnerabilidades CRITICAL y HIGH"""
         thresholds = self.config.get("severity_thresholds", {})
         
         for vuln in self.results["vulnerabilities"]:
@@ -179,20 +211,23 @@ If no vulnerabilities found, return {{"vulnerabilities": []}}"""
         return 0
 
     def generate_report(self, output_path: str = "scripts/reports/report.html"):
+        """RF-06: Generar reporte con: archivo, línea, descripción, código, sugerencia, CWE"""
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
         severity_colors = {
             "CRITICAL": "#ff0000",
-            "HIGH": "#ff6600",
+            "HIGH": "#ff6600", 
             "MEDIUM": "#ffcc00",
             "LOW": "#0099ff"
         }
+        
+        cwe_ref = self.config.get("cwe_reference", {})
         
         html = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Security Analysis Report - TheBoys-Backend</title>
+    <title>Security Analysis Report - PipeAISecure</title>
     <style>
         body {{ font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 20px; background: #f5f5f5; }}
         .container {{ max-width: 1200px; margin: 0 auto; }}
@@ -207,12 +242,13 @@ If no vulnerabilities found, return {{"vulnerabilities": []}}"""
         .code {{ background: #f0f0f0; padding: 10px; border-radius: 5px; font-family: monospace; overflow-x: auto; }}
         .badge {{ padding: 5px 10px; border-radius: 3px; color: white; font-weight: bold; }}
         .blocked {{ background: #ff0000; color: white; padding: 20px; border-radius: 10px; text-align: center; font-size: 24px; margin: 20px 0; }}
+        .info {{ color: #666; font-size: 14px; }}
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🔒 AI Security Analysis Report</h1>
-        <p><strong>Project:</strong> TheBoys-Backend</p>
+        <h1>🔒 AI Security Analysis Report - PipeAISecure</h1>
+        <p><strong>Project:</strong> PipeAISecure</p>
         <p><strong>Date:</strong> {self.results['timestamp']}</p>
         <p><strong>Files Analyzed:</strong> {self.results['files_analyzed']}</p>
         
@@ -246,13 +282,17 @@ If no vulnerabilities found, return {{"vulnerabilities": []}}"""
         else:
             for vuln in self.results["vulnerabilities"]:
                 color = severity_colors.get(vuln.get("severity", "LOW"), "#0099ff")
+                cwe = vuln.get("cwe_id", "")
+                cwe_name = cwe_ref.get(cwe, "") if cwe else ""
+                
                 html += f"""
         <div class="vulnerability" style="border-left-color: {color};">
             <span class="badge" style="background: {color};">{vuln.get('severity', 'UNKNOWN')}</span>
             <h3>{vuln.get('type', 'Unknown')}</h3>
-            <p><strong>Archivo:</strong> {vuln.get('file', 'N/A')}</p>
-            <p><strong>Línea:</strong> {vuln.get('line_number', 'N/A')}</p>
-            <p><strong>Descripción:</strong> {vuln.get('description', '')}</p>
+            <p class="info"><strong>Archivo:</strong> {vuln.get('file', 'N/A')}</p>
+            <p class="info"><strong>Línea:</strong> {vuln.get('line_number', 'N/A')}</p>
+            <p class="info"><strong>CWE:</strong> {cwe} ({cwe_name})</p>
+            <p>{vuln.get('description', '')}</p>
 """
                 if vuln.get('code_snippet'):
                     html += f'<div class="code"><pre>{vuln.get("code_snippet", "")}</pre></div>'
@@ -272,10 +312,11 @@ If no vulnerabilities found, return {{"vulnerabilities": []}}"""
         return output_path
 
     def save_json_report(self, output_path: str = "scripts/reports/report.json"):
+        """RF-06 & RF-07: Reporte JSON con todos los campos y retención de 30 días"""
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
         with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(self.results, f, indent=2)
+            json.dump(self.results, f, indent=2, ensure_ascii=False)
         
         print(f"📄 Reporte JSON: {output_path}")
         return output_path

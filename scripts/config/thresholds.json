@@ -1,7 +1,7 @@
 {
   "model": "codellama:7b",
   "ollama_url": "http://localhost:11434",
-  "timeout_seconds": 120,
+  "timeout_seconds": 180,
   "max_tokens": 2048,
   "severity_thresholds": {
     "CRITICAL": {
@@ -44,12 +44,26 @@
   "analysis_options": {
     "batch_size": 5,
     "parallel_requests": 2,
-    "cache_results": true
+    "cache_results": true,
+    "max_code_length": 3000
   },
   "report_options": {
-    "format": "html",
+    "format": ["html", "json"],
     "output_path": "scripts/reports",
     "include_code_snippets": true,
-    "max_snippet_lines": 10
+    "max_snippet_lines": 10,
+    "retention_days": 30
+  },
+  "cwe_reference": {
+    "CWE-89": "SQL Injection",
+    "CWE-79": "Cross-Site Scripting (XSS)",
+    "CWE-798": "Use of Hard-coded Credentials",
+    "CWE-287": "Improper Authentication",
+    "CWE-78": "OS Command Injection",
+    "CWE-22": "Path Traversal",
+    "CWE-611": "XML External Entity Reference",
+    "CWE-502": "Deserialization of Untrusted Data",
+    "CWE-311": "Missing Encryption of Sensitive Data",
+    "CWE-16": "Configuration"
   }
 }

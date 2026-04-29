@@ -1,0 +1,22 @@
+{
+  "timestamp": "2026-04-16T19:00:29.794332",
+  "files_analyzed": 88,
+  "vulnerabilities": [
+    {
+      "type": "Hardcoded secrets/credentials",
+      "severity": "CRITICAL",
+      "line_number": 4,
+      "description": "The student ID is hardcoded in the exception message.",
+      "code_snippet": "String.format(\"User with ID '%s', has insufficient permissions\", studentId);",
+      "suggestion": "Use a secure mechanism to store and retrieve sensitive information, such as environment variables or configuration files.",
+      "cwe_id": "CWE-259",
+      "file": "src\\main\\java\\edu\\dosw\\sirha\\exception\\RoleException.java"
+    }
+  ],
+  "summary": {
+    "CRITICAL": 1,
+    "HIGH": 0,
+    "MEDIUM": 0,
+    "LOW": 0
+  }
+}

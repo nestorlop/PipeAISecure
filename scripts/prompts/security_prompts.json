@@ -1,0 +1,32 @@
+{
+  "task": "Analyze this Java/Spring Boot code for security vulnerabilities",
+  "focus_areas": [
+    "OWASP Top 10",
+    "SQL Injection",
+    "Cross-Site Scripting (XSS)",
+    "Hardcoded secrets/credentials",
+    "Unsafe deserialization",
+    "Server-Side Request Forgery (SSRF)",
+    "Insecure Direct Object Reference (IDOR)",
+    "Missing authorization checks",
+    "Sensitive data exposure",
+    "XML External Entity (XXE)",
+    "Path traversal",
+    "Command injection"
+  ],
+  "output_format": "json",
+  "response_template": {
+    "vulnerabilities": [
+      {
+        "type": "string",
+        "severity": "CRITICAL|HIGH|MEDIUM|LOW",
+        "line_number": "number",
+        "description": "string",
+        "code_snippet": "string",
+        "suggestion": "string",
+        "cwe_id": "string"
+      }
+    ]
+  },
+  "analysis_instructions": "Provide ONLY valid JSON output. No markdown formatting. Start with { and end with }. If no vulnerabilities found, return {\"vulnerabilities\": []}"
+}

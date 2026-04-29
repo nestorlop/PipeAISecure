@@ -1,0 +1,237 @@
+name: AI Security Scan
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+jobs:
+  security-ai-scan:
+    name: AI Vulnerability Detection
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Install Ollama
+        run: curl -fsSL https://ollama.ai/install.sh | sh
+
+      - name: Get changed Java files
+        id: changed-files
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }} HEAD -- '*.java' 2>/dev/null || echo "")
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD -- '*.java' 2>/dev/null || echo "")
+          else
+            CHANGED_FILES=$(find . -name '*.java' -path './src/main/*' | head -20)
+          fi
+          
+          echo "Detected changed files:"
+          echo "$CHANGED_FILES"
+          
+          if [ -z "$CHANGED_FILES" ]; then
+            echo "No Java files changed"
+          fi
+          
+          echo "$CHANGED_FILES" > changed_files.txt
+
+      - name: Create reports directory
+        run: mkdir -p scripts/reports
+
+      - name: Download Analyzer Script
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: ai-analyzer-script
+          path: scripts/
+
+      - name: Run Security Analyzer
+        run: |
+          export OLLAMA_HOST=http://localhost:11434
+          export OLLAMA_MODELS=/tmp/ollama-models
+          ollama serve &
+          sleep 20
+          ollama pull codellama:7b
+          
+          CHANGED_FILES=$(cat changed_files.txt)
+          
+          python3 << 'PYTHON_SCRIPT'
+          import os
+          import sys
+          import json
+          import requests
+          import re
+          from pathlib import Path
+          from datetime import datetime
+
+          ollama_url = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+          model = "codellama:7b"
+
+          config = {
+              "severity_thresholds": {
+                  "CRITICAL": {"block_push": True, "exit_code": 1},
+                  "HIGH": {"block_push": True, "exit_code": 1},
+                  "MEDIUM": {"block_push": False, "exit_code": 0},
+                  "LOW": {"block_push": False, "exit_code": 0}
+              }
+          }
+
+          results = {
+              "timestamp": datetime.now().isoformat(),
+              "files_analyzed": 0,
+              "vulnerabilities": [],
+              "summary": {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+          }
+
+          code_template = """Analyze the following Java code for security vulnerabilities based on OWASP Top 10.
+
+          FOCUS AREAS:
+          - SQL Injection (CWE-89)
+          - Cross-Site Scripting XSS (CWE-79)
+          - Hardcoded Secrets/Credentials (CWE-798)
+          - Broken Authentication (CWE-287)
+          - Command Injection (CWE-78)
+          - Path Traversal (CWE-22)
+          - XML External Entity XXE (CWE-611)
+          - Deserialization Issues (CWE-502)
+
+          CODE:
+          {code}
+
+          Return ONLY a valid JSON array (no markdown, no explanation). Each vulnerability must have:
+          - "type": vulnerability type name
+          - "severity": CRITICAL, HIGH, MEDIUM, or LOW
+          - "line_number": approximate line number
+          - "description": what the vulnerability is
+          - "code_snippet": the vulnerable code
+          - "suggestion": how to fix it
+          - "cwe_id": CWE identifier (e.g., CWE-89)
+
+          Format: [{"type": "", "severity": "", "line_number": 0, "description": "", "code_snippet": "", "suggestion": "", "cwe_id": ""}]
+
+          If no vulnerabilities found, return: []"""
+
+          def analyze_file(filepath):
+              try:
+                  with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+                      code = f.read()
+                  if not code.strip() or len(code) < 20:
+                      return []
+                  
+                  prompt = code_template.format(code=code[:3000])
+                  payload = {
+                      "model": model,
+                      "prompt": prompt,
+                      "stream": False,
+                      "options": {"num_predict": 2048, "temperature": 0.1}
+                  }
+                  
+                  resp = requests.post(f"{ollama_url}/api/generate", json=payload, timeout=180)
+                  
+                  if resp.status_code == 200:
+                      try:
+                          text = resp.json().get("response", "")
+                          m = re.search(r'\[.*\]', text, re.DOTALL)
+                          if m:
+                              vulns = json.loads(m.group())
+                              return vulns if isinstance(vulns, list) else []
+                      except json.JSONDecodeError:
+                          pass
+              except Exception as e:
+                  print(f"Error analyzing {filepath}: {e}")
+              return []
+
+          def get_changed_files():
+              try:
+                  with open("changed_files.txt", "r") as f:
+                      content = f.read().strip()
+                  if content:
+                      return [Path(line.strip()) for line in content.split("\n") if line.strip()]
+              except:
+                  pass
+              return []
+
+          print("Starting security scan...")
+          files = get_changed_files()
+          
+          if not files:
+              print("No files to analyze")
+              sys.exit(0)
+          
+          print(f"Files to analyze: {len(files)}")
+          for fp in files:
+              print(f"  Analyzing: {fp}")
+              vulns = analyze_file(fp)
+              print(f"    Found {len(vulns)} vulnerabilities")
+              
+              for v in vulns:
+                  v["file"] = str(fp)
+                  v["severity"] = v.get("severity", "LOW").upper()
+                  results["vulnerabilities"].append(v)
+                  sev = v.get("severity", "LOW")
+                  results["summary"][sev] = results["summary"].get(sev, 0) + 1
+              results["files_analyzed"] += 1
+
+          os.makedirs("scripts/reports", exist_ok=True)
+          with open("scripts/reports/report.json", "w") as f:
+              json.dump(results, f, indent=2)
+
+          blocked = any(
+              config["severity_thresholds"].get(v.get("severity", "LOW"), {}).get("block_push", False)
+              for v in results["vulnerabilities"]
+          )
+          
+          print(f"\n=== SECURITY SCAN RESULTS ===")
+          print(f"Files analyzed: {results['files_analyzed']}")
+          print(f"Total vulnerabilities: {len(results['vulnerabilities'])}")
+          print(f"Summary: {results['summary']}")
+          
+          sys.exit(1) if blocked else sys.exit(0)
+          PYTHON_SCRIPT
+        timeout-minutes: 45
+
+      - name: Upload Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: security-report
+          path: scripts/reports/report.json
+          retention-days: 30
+
+      - name: Show Results Summary
+        if: always()
+        run: |
+          if [ -f scripts/reports/report.json ]; then
+            echo "=== Security Scan Results ==="
+            cat scripts/reports/report.json
+          fi
+
+      - name: Fail if critical vulnerabilities
+        if: always()
+        run: |
+          if [ -f scripts/reports/report.json ]; then
+            CRITICAL=$(cat scripts/reports/report.json | grep -o '"CRITICAL": [0-9]*' | grep -o '[0-9]*' || echo "0")
+            HIGH=$(cat scripts/reports/report.json | grep -o '"HIGH": [0-9]*' | grep -o '[0-9]*' || echo "0")
+            
+            if [ "$CRITICAL" -gt 0 ] || [ "$HIGH" -gt 0 ]; then
+              echo "::warning::Blocking vulnerabilities found! CRITICAL: $CRITICAL, HIGH: $HIGH"
+              exit 1
+            fi
+          fi

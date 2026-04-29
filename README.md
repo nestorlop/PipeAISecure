@@ -298,7 +298,9 @@ En las siguientes capturas se mostrará un ejemplo del JSON de diferentes docume
   "_class": "edu.dosw.sirha.model.entity.Subject"
 }
 ```
+
 - Para los grupos:
+
 ```json
 {
   "_id": "1",

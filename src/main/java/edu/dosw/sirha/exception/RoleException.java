@@ -8,6 +8,6 @@ public class RoleException extends RuntimeException {
 
     public static RoleException create(String studentId) {
         return new RoleException(
-                String.format("User with ID '%s', has insufficient permissions", studentId));
+                String.format("User with ID '%s', has insufficient permissions"));
     }
 }
